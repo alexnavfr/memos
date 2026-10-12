@@ -1,0 +1,420 @@
+#! /bin/perl
+
+use strict;
+use DBI;
+my $NB_FIELDS_IN_CONFIG = 25;
+our $riskClassification;    #[M32SF-19671] Toolbox scripts
+
+# Variable connexion DB
+#die "Usage: <user> <password> <DB Name> <Server> <Input file>\n" if ( not @ARGV or scalar(@ARGV) != 5 );
+#my ($user, $passwd, $dbName, $dsQuery, $inputFile) = @ARGV;
+
+die "Usage: <user> <password> <DB Name> <Server> <Input file>\n"
+    if ( not @ARGV or scalar(@ARGV) != 5 );
+my ( $user, $passwd, $dbName, $oracle_sid, $inputFile ) = @ARGV;
+
+# Connexion DB
+#my $dbh = DBI->connect("dbi:Sybase:server=$dsQuery;database=$dbName", $user, $passwd, {RaiseError => 1, AutoCommit => 1}) or die "ERROR DB CONNECTION : $DBI::errstr";
+my $dbh =
+    DBI->connect( "dbi:Oracle:sid=$oracle_sid", $user, $passwd,
+    {RaiseError => 1, AutoCommit => 1} )
+    or die "ERROR DB CONNECTION : $DBI::errstr";
+
+# Cache tables de taches
+my %tasksTableCache = ();
+my ( $success, $errors, $totals ) = 0;
+my $globalErrors;
+
+#
+open INPUT, "<$inputFile" or die "Unable to open $inputFile: $!\n";
+
+foreach my $line (<INPUT>) {
+    next if $line =~ m/^#/;
+    $totals = $totals + 1;
+    print " \n debut traitement line : $line \n";
+
+    # Nettoyage
+    chomp $line;
+    my $count = () = $line =~ /;/g;
+    die
+        "Erreur format : Incorrect number of fields in the following line : \n$line\n"
+        if ( $count != $NB_FIELDS_IN_CONFIG );
+
+    $line =~ s/ *; */;/g;
+    $line =~ s/^ *//;
+    $line =~ s/ *$//;
+    $line =~ s/;$//;
+
+    # Interpretation
+    my @fields      = split /;/, $line;
+    my @numOfFields = scalar(@fields);
+    print "nb fields = @numOfFields \n";
+    die "Incorrect number of fields in the following line : \n$line\n"
+        if ( scalar(@fields) > $NB_FIELDS_IN_CONFIG );
+
+    #assignation variable of line csv
+    my ($weight,      $priority,        $filter,     $configFile,
+        $portrepType, $isConfigFileXML, $addRisk,    $cvid,
+        $pgid,        $date,            $reportDate, $byTrade,
+        $byAsset,     $autopack,        $suffix,     $discriminator,
+        $armVector,   $copyTo,          $poubelle,   $jobId,
+        $group,       $envId,           $req_end,    $wsh_end,
+        $riskClassif, @trash
+       )
+        = @fields;
+
+    # Desactivation du parametrage AddRisk
+    $addRisk            = " ";
+    $riskClassification = $riskClassif;
+
+    print
+        "jobId=($jobId) weight=($weight) priority=($priority) filter=($filter) configFile=($configFile) portrepType=($portrepType) isConfigFileXML=($isConfigFileXML) addRisk=($addRisk) cvid=($cvid) pgid=($pgid) date=($date) reportDate=($reportDate) byTrade=($byTrade) byAsset=($byAsset) autopack=($autopack) suffix=($suffix) discriminator=($discriminator) armVector=($armVector) copyTo=($copyTo) group=($group) envId=($envId) required_end=($req_end) wished_end=($wsh_end) riskClassif=($riskClassification)\n";
+
+    if ( $date eq "" or $reportDate eq "" ) {
+        die "ERROR : rundate or reportdate empy";
+    }
+    if ( $byAsset eq $byTrade ) {
+        die "ERROR : byTrade equals byAsset";
+    }
+
+    if ( $autopack eq " " or $autopack eq "" ) {
+        $autopack = "P500";
+    }
+
+    if ( $suffix eq "" ) {
+        $suffix = " ";
+    }
+
+    # Traitements de champs specifiques
+    $copyTo =~ s/,\s*/\|/g;
+    my @copyTo = split /\|/, $copyTo;
+
+    # M32SF-9229 check uppercase for IQ Destination DIR
+    foreach my $target (@copyTo) {
+        if ( $target =~ /_IQ_HEDGEDIR/ || $target =~ /_IQ_STRESSDIR/ ) {
+            print "update copyTo IQ $target ==>";
+            $target =~ s/\/(\w*$)/\/\U\1/;
+            print "$target \n";
+        }
+    }
+
+    $byAsset = $byAsset eq "Y" ? 1 : 0;
+    $byTrade = $byTrade eq "Y" ? 1 : 0;
+
+    #old $isConfigFileXML = $isConfigFileXML eq "-XML" ? 1 : 0;
+    if ( $isConfigFileXML eq "-XML" ) {
+        $isConfigFileXML = 1;
+    }
+    else {
+        if ( $isConfigFileXML eq "" ) {
+            $isConfigFileXML = 0;
+        }
+        else {
+            $isConfigFileXML = "error";
+        }
+    }
+
+    #
+    my $varTaskClosing = &getTaskTable($jobId);
+    my @varSplit       = split /;/, $varTaskClosing;
+    my $taskTable      = @varSplit[0];
+    my $closing        = @varSplit[1];
+    print "\n taskTable : $taskTable for line $line \n ";
+    my $taskId = &getTaskId( $jobId, $taskTable, $filter, $suffix );
+    print "\n taskId : $taskId   for line  $line \n ";
+
+    if ( defined $taskId ) {
+        my $localError =
+            "ERROR : This Hedge already exists in SRM ($jobId): Hedge_$filter$suffix";
+        print "$localError\n";
+        $errors       = $errors + 1;
+        $globalErrors = "$globalErrors\n$localError";
+    }
+    else {
+        if ( $isConfigFileXML eq "error" ) {
+            my $localError =
+                "ERROR : Wrong parameter XML : must be -XML or empty : $isConfigFileXML";
+            print "$localError\n";
+            $errors       = $errors + 1;
+            $globalErrors = "$globalErrors\n$localError";
+        }
+        else {
+            #ici test suffix
+            my $longeursufix = length($suffix);
+            if ( $longeursufix > 30 ) {
+                my $localError =
+                    "Erreur Longueur Suffix, ne doit pas etre superieur a 30 : ($jobId): Hedge_$filter$suffix";
+                print "$localError\n";
+                $errors       = $errors + 1;
+                $globalErrors = "$globalErrors\n$localError";
+            }
+            else {
+                print
+                    "Inserting ($jobId): Hedge_$filter$suffix  into $taskTable \n";
+
+                if ( $req_end eq "" ) {
+                    if ( $closing eq "ASIA" ) {$req_end = "18:30PM";}
+                    else {
+                        if   ( $closing eq "NY" ) {$req_end = "13:30PM";}
+                        else                      {$req_end = "07:30AM";}
+                    }
+                }
+
+                if ( $wsh_end eq "" ) {
+                    if ( $closing eq "ASIA" ) {$wsh_end = "17:30PM";}
+                    else {
+                        if   ( $closing eq "NY" ) {$wsh_end = "12:30PM";}
+                        else                      {$wsh_end = "6:30AM";}
+                    }
+                }
+
+                $dbh->do( "
+               INSERT INTO $taskTable(
+                   JobId,
+                   Filter,
+                   Suffix,
+                   CVID,
+                   PGID,
+                   RunDate,
+                   ReportDate,
+                   ConfigFile,
+                   IsConfigFileXML,
+                   AddRisk,
+                   PortrepType,
+                   ResultByTrade,
+                   ResultByAsset,
+                   ARMVector,
+                   Discriminator,
+                   Autopack,
+                   Weight,
+                   EnvId,
+                   Required_End,
+                   Wished_End,
+                   Active )
+               VALUES (
+                   '$jobId',
+                   '$filter',
+                   '$suffix',
+                   '$cvid',
+                   '$pgid',
+                   '$date',
+                   '$reportDate',
+                   '$configFile',
+                   $isConfigFileXML,
+                   '$addRisk',
+                   '$portrepType',
+                   $byTrade,
+                   $byAsset,
+                   '$armVector',
+                   '$discriminator',
+                   '$autopack',
+                   $weight,
+                   '$envId',
+                   TO_DATE('$req_end', 'HH24:MI:SS'),
+                        TO_DATE('$wsh_end', 'HH24:MI:SS'),
+                1)" ) or die "Insert into $taskTable failed: $DBI::errstr\n";
+
+                $taskId = &getTaskId( $jobId, $taskTable, $filter, $suffix );
+                print "Generated TaskID is $taskId  \n";
+
+                &insertCopyTo( $jobId, $taskId, @copyTo );
+
+                #print "La longeur des champs est : $sizeIsGood\n";
+                #partie concernant l'ajout du group
+                print
+                    "\n processing $jobId, $filter, $suffix, $group- TaskId = ";
+
+                # Traitements de champs specifiques
+                my @group = split /\|/, $group;
+
+                #NGR : Correction on check la taille de chaque GroupName qui doit etre plus petite ou egale a 30   sinon on passe au suivant
+                my $sizeIsGood = "true";
+
+                #print "Check de la longueur des champs\n";
+                foreach my $target (@group) {
+
+                    #FR-6594: Suppresion des espaces dans le nom du group
+                    $target =~ s/ //g;
+
+                    print " \n group is : $target \n";
+                    my $longeur = length($target);
+
+                    #print "Longueur : $longeur \n";
+                    if ( $longeur > 30 ) {
+                        $sizeIsGood = "false";
+                        my $localError =
+                            "\nError : An Hedge Group is too long in line : $line \n";
+                        print $localError;
+                        $errors       = $errors + 1;
+                        $globalErrors = "$globalErrors\n$localError";
+                    }
+                    else {
+                        print "$taskId \n";
+
+                        # Insertion des Groups pour le hedge concerne
+                        print "\n insertiiing $jobId, $taskId,$target  \n";
+                        &insertBelongsTo( $jobId, $taskId, $target );
+                        $success = $success + 1;
+                    }
+                }
+                print " \n fin traitement line $line \n ";
+            }
+        }
+
+        #fin du dernier else
+    }
+
+    sub getTaskTable(\$) {
+        my $jobId     = shift;
+        my $closing   = undef;
+        my $taskTable = $tasksTableCache{$jobId};
+
+        if ( not defined $taskTable ) {
+            print "JobId = $jobId";
+            my $sqlGetTaskTable = $dbh->prepare(
+                "SELECT TasksTable,Closing FROM SRM_Jobs WHERE JobId =?")
+                or die "Couldn't prepare statement: $dbh->errstr\n";
+
+            $sqlGetTaskTable->execute($jobId);
+            $sqlGetTaskTable->bind_columns( \$taskTable, \$closing );
+            $sqlGetTaskTable->fetch;
+
+            if ( not defined $taskTable ) {
+                die "Invalid Job ID : $jobId \n";
+            }
+        }
+
+        return "$taskTable;$closing";
+    }
+
+    sub getTaskId(\$\$) {
+        my ( $jobId, $taskTable, $filter, $suffix ) = @_;
+        my $taskId = undef;
+
+        my $suffix_min = lc($suffix);
+
+        my $sqlGetTaskId = $dbh->prepare(
+            "SELECT TaskId FROM $taskTable WHERE JobId = ? AND Filter=? AND LOWER(Suffix)=?"
+            )
+            or die "Couldn't prepare statement: $dbh->errstr\n";
+        $sqlGetTaskId->execute( $jobId, $filter, $suffix_min );
+        $sqlGetTaskId->bind_columns( \$taskId );
+        $sqlGetTaskId->fetch;
+
+        return $taskId;
+    }
+
+    sub insertCopyTo(\$\$\@) {
+        my ( $jobId, $taskId, @copyTo ) = @_;
+        print "$jobId - $taskId : @copyTo \n";
+        foreach my $target (@copyTo) {
+            print "insert destination : $target \n";
+            my ( $targetDir, $targetFile, $targetdate ) = split /:/, $target;
+            my $dirId = &getDirectoryId($targetDir);
+
+            # MODIF pour les FIXA FIXB
+            #      $targetFile = ( $targetFile =~ m{^\s*$} ) ? "NULL" : "'$targetFile'";
+            $targetFile =~ m{^\s*$} and do {
+                $targetFile = undef;    # : "'$targetFile'";
+            };
+            defined $targetdate and do {
+                $targetFile = $targetFile . ":" . $targetdate;
+            };
+
+            print
+                "INSERT INTO SRM_CopyTo( ReportJobId, ReportTaskId, DirId, TargetFileName, Active,OutputFileId) VALUES('$jobId', $taskId, $dirId, $targetFile, 1,1) \n";
+            my $InsertStatement = $dbh->prepare(
+                qq{ INSERT INTO SRM_CopyTo( ReportJobId, ReportTaskId, DirId, TargetFileName, Active,OutputFileId) VALUES(?,?,?,?,?,?)
+               }
+            );
+            if ( defined $targetFile ) {
+                $targetFile = "'$targetFile'";
+                $InsertStatement->execute( $jobId, $taskId, $dirId,
+                    $targetFile, 1, 1 )
+                    or die "Insert into SRM_CopyTo failed: $dbh->errstr\n";
+            }
+            else {
+                $InsertStatement->execute( $jobId, $taskId, $dirId, undef, 1,
+                    1 )
+                    or die "Insert into SRM_CopyTo failed: $dbh->errstr\n";
+            }
+
+        }
+    }
+}
+print "\n\nfinished - success = $success / error = $errors / total = $totals\n";
+if ( $errors > 0 ) {
+    print "\n error detail :\n";
+    print "$globalErrors";
+}
+
+sub getDirectoryId(\$) {
+    my $fileName        = shift;
+    my $dirId           = undef;
+    my $sqlGetDirectory = $dbh->prepare(
+        qq{SELECT DirId FROM SRM_Directory WHERE TargetDirectory= ?})
+        or die "Couldn't prepare statement: $dbh->errstr\n";
+    $sqlGetDirectory->execute($fileName);
+    $sqlGetDirectory->bind_columns( \$dirId );
+    $sqlGetDirectory->fetch;
+
+    if ( not defined $dirId ) {
+        my $dirGetStatement = $dbh->prepare(
+            qq{ INSERT INTO SRM_Directory(TargetDirectory, Client) VALUES (?,?) }
+        );
+        $dirGetStatement->execute( $fileName, '' );
+        $dirId = &getDirectoryId($fileName);
+    }
+
+    return $dirId;
+}
+
+sub insertBelongsTo(\$\$\@) {
+    my ( $jobId, $taskId, @GroupName ) = @_;
+    print
+        "\n insertBelongsTo(): JobId = $jobId, TaskId = $taskId, RiskClassification= $riskClassification \n ";
+    foreach my $target (@GroupName) {
+        print
+            "\n insertBelongsTo() in the loop: GroupName = $target RiskClassification = $riskClassification\n";
+        my $GroupId = &getGroupId( $target, $riskClassification );
+
+        my $sqlInsertStatement = $dbh->prepare(
+            qq{ INSERT INTO SRM_BelongTo( JobId, TaskId, GroupId) VALUES(?,?,?)
+                                   }
+        );
+        $sqlInsertStatement->execute( $jobId, $taskId, $GroupId )
+            or die "Insert into SRM_BelongTo failed: $dbh->errstr\n";
+    }
+}
+
+sub getGroupId(\$) {
+    my $groupName = shift;
+    my $groupId   = undef;
+    print
+        "\n getGroupId(): RiskClassification= $riskClassification, GroupName=$groupName , GroupId = $groupId \n ";
+    my $sqlGetGroup =
+        $dbh->prepare(qq{SELECT GroupId FROM SRM_Group WHERE GroupName= ?})
+        or die "Couldn't prepare statement: $dbh->errstr\n";
+    $sqlGetGroup->execute($groupName);
+    $sqlGetGroup->bind_columns( \$groupId );
+    $sqlGetGroup->fetch;
+    print
+        "\n getGroupId() after bind and fetch: RiskClassification= $riskClassification, GroupName=$groupName , GroupId = $groupId \n ";
+
+    if ( not defined $groupId ) {
+        print
+            "\n getGroupId() in IF: RiskClassification= $riskClassification, GroupName=$groupName , GroupId = $groupId \n ";
+        my $groupStatement = $dbh->prepare(
+            qq {INSERT INTO SRM_Group(GroupName, TopPrio, RiskClassification) VALUES (?, ?, ?)}
+            )
+            or die "Inserting into SRM_Group failed: $dbh->errstr\n";
+        $groupStatement->execute( $groupName, 0, $riskClassification );
+        $groupId = &getGroupId( $groupName, $riskClassification );
+    }
+
+    return $groupId;
+}
+
+# Deconnexion
+close INPUT;
+$dbh->disconnect();

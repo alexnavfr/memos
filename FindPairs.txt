@@ -1,0 +1,42 @@
+using System;
+using System.Collections.Generic;
+using System.Text;
+
+public class Solution {
+    public string FindPairs(int k, List<int> data) 
+    {
+        // Создаем HashSet для хранения частоты каждого числа
+        Dictionary<int, int> frequency = new Dictionary<int, int>();
+        foreach (int num in data) {
+            if (frequency.ContainsKey(num)) {
+                frequency[num]++;
+            } else {
+                frequency[num] = 1;
+            }
+        }
+
+        StringBuilder result = new StringBuilder();
+        // Проходим по всем числам в списке
+        foreach (int num in data) {
+            int complement = k - num;
+            // Проверяем, есть ли дополнение в словаре
+            if (frequency.ContainsKey(complement)) {
+                // Если число и его дополнение совпадают, нужно учесть количество пар
+                if (num == complement) {
+                    // Количество пар для одинаковых чисел: n*(n-1)/2, но мы учитываем каждую пару отдельно
+                    int count = frequency[num];
+                    // Для каждого числа добавляем пару (num + num)
+                    if (count > 1) {
+                        result.Append($"({num}+{complement})");
+                    }
+                } else if (frequency.ContainsKey(complement) && complement > num) {
+                    // Для разных чисел добавляем пару один раз в порядке num < complement
+                    result.Append($"({num}+{complement})");
+                }
+            }
+        }
+
+        // Если результат пустой, возвращаем "()"
+        return result.Length == 0 ? "()" : result.ToString();
+    }
+}
