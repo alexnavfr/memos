@@ -22,7 +22,7 @@
 - Метод чтения Ильи Франка(Учим язык, читая интересные книги)[тут](http://www.franklang.ru/)
 - Электронная библиотека фантастики и фэнтези[тут](https://www.fant-lib.ru/)
 - Fictionbook [тут](https://fictionbook.ru/)
--  Gondor.ru (Фэнтези-сообщество)[тут](https://gondor.ru/)
+- Gondor.ru (Фэнтези-сообщество)[тут](https://gondor.ru/)
 - BDTheque [тут](https://www.bdtheque.com/)
 - 8 сайтов с книгами [тут](https://www.imena.ua/blog/8-free-ebooks-sites/) _возможно не все живы_
 - Библиотека Максима Мошкова. [тут](lib.ru)
@@ -34,10 +34,10 @@
 - Индивидуальная библиотека под управлением программы MultiLib [booktracker](https://booktracker.org/viewtopic.php?t=97608)
 - радио спектакли 1947-1995 (225 спектаклей, примерно 345 часов) [торрент](https://nnmclub.to/forum/viewtopic.php?p=12738339#12738339)
 - Детская Энциклопедия СССР [wiki](https://ru.wikipedia.org/wiki/%D0%94%D0%B5%D1%82%D1%81%D0%BA%D0%B0%D1%8F_%D1%8D%D0%BD%D1%86%D0%B8%D0%BA%D0%BB%D0%BE%D0%BF%D0%B5%D0%B4%D0%B8%D1%8F)
-    - первое издание 1958-1962 10 томов [трекер](https://booktracker.org/viewtopic.php?t=1005)
-    - второе издание 1971-1978 12 томов [трекер](https://booktracker.org/viewtopic.php?t=102450)
-    - онлайн сайт [ссылка](https://de-ussr.com/)
-    - ну и на последок [VK](https://vk.com/wall-40782730_37144)
+- первое издание 1958-1962 10 томов [трекер](https://booktracker.org/viewtopic.php?t=1005)
+- второе издание 1971-1978 12 томов [трекер](https://booktracker.org/viewtopic.php?t=102450)
+- онлайн сайт [ссылка](https://de-ussr.com/)
+- ну и на последок [VK](https://vk.com/wall-40782730_37144)
 
 Для приготовления экслибрисов [сайт](https://enchantitude.com/products/book-embosser?utm_medium=paid&utm_id=120216544468270277&utm_content=120216723478640277&utm_term=120216723478670277&utm_campaign=120216544468270277)
 
